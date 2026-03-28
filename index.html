@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Treasury Stress Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#0c0e14; --surface:#13161f; --card:#1a1d2b; --border:#2a2e42;
+  --text:#e2e8f0; --muted:#8892a4; --dim:#505a70;
+  --green:#22c55e; --gbg:rgba(34,197,94,.10); --gbr:rgba(34,197,94,.30);
+  --yellow:#f59e0b; --ybg:rgba(245,158,11,.10); --ybr:rgba(245,158,11,.30);
+  --red:#ef4444; --rbg:rgba(239,68,68,.10); --rbr:rgba(239,68,68,.30);
+  --accent:#818cf8; --accent2:#6366f1;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:26px 30px;line-height:1.5}
+h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
+h2{font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:13px}
+
+/* header */
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:10px}
+.hdr .sub{color:var(--muted);font-size:.86rem;margin-top:3px}
+.ts{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:7px 13px;font-size:.76rem;color:var(--muted)}
+
+/* api bar */
+.abar{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 17px;margin-bottom:19px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.abar label{font-size:.82rem;color:var(--muted);white-space:nowrap}
+.abar input{background:var(--card);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:6px 11px;font-size:.84rem;flex:1;min-width:220px;outline:none}
+.abar input:focus{border-color:var(--accent)}
+.abar button{background:var(--accent2);color:#fff;border:none;border-radius:7px;padding:7px 16px;font-size:.84rem;cursor:pointer;white-space:nowrap}
+.abar button:hover{background:var(--accent)}
+.abar .hint{font-size:.76rem;color:var(--dim);margin-left:auto}
+
+/* signal banner */
+.sig{border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px}
+.sig.clear{background:var(--gbg);border:1px solid var(--gbr)}
+.sig.caution{background:var(--ybg);border:1px solid var(--ybr)}
+.sig.alert{background:var(--rbg);border:1px solid var(--rbr)}
+.sig .icon{font-size:1.7rem}
+.sig .label{font-size:1.05rem;font-weight:700}
+.sig .desc{font-size:.83rem;color:var(--muted);margin-top:2px}
+.sig .counts{margin-left:auto;text-align:right;font-size:.78rem;color:var(--muted)}
+
+/* grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;margin-bottom:22px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:15px 17px;position:relative;overflow:hidden}
+.card.green{border-color:var(--gbr);background:linear-gradient(135deg,var(--card) 80%,var(--gbg))}
+.card.yellow{border-color:var(--ybr);background:linear-gradient(135deg,var(--card) 80%,var(--ybg))}
+.card.red{border-color:var(--rbr);background:linear-gradient(135deg,var(--card) 80%,var(--rbg))}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.card-name{font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.badge{font-size:.68rem;font-weight:700;padding:3px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em}
+.badge.green{background:var(--gbg);color:var(--green);border:1px solid var(--gbr)}
+.badge.yellow{background:var(--ybg);color:var(--yellow);border:1px solid var(--ybr)}
+.badge.red{background:var(--rbg);color:var(--red);border:1px solid var(--rbr)}
+.badge.na{background:#1e2235;color:var(--dim);border:1px solid var(--border)}
+.card-val{font-size:1.55rem;font-weight:700;letter-spacing:-.02em;margin-bottom:3px}
+.card-sub{font-size:.76rem;color:var(--muted)}
+.card-chart{margin-top:10px;height:52px}
+.card-thr{font-size:.71rem;color:var(--dim);margin-top:7px;border-top:1px solid var(--border);padding-top:6px}
+
+/* auction table */
+.atbl{width:100%;border-collapse:collapse;font-size:.82rem}
+.atbl th{text-align:left;color:var(--muted);font-weight:600;padding:6px 10px;border-bottom:1px solid var(--border)}
+.atbl td{padding:8px 10px;border-bottom:1px solid rgba(42,46,66,.5)}
+.atbl tr:last-child td{border-bottom:none}
+.atbl .num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* loading / error */
+.loading{color:var(--muted);font-size:.88rem;padding:8px 0}
+.err{color:var(--red);font-size:.82rem;margin-top:6px}
+
+@media(max-width:600px){body{padding:16px 12px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div>
+    <h1>🏛 Treasury Stress Dashboard</h1>
+    <div class="sub">Monitoring U.S. Treasury market health across 10 indicators</div>
+  </div>
+  <div class="ts" id="ts">—</div>
+</div>
+
+<div class="abar">
+  <label for="apiKey">FRED API Key</label>
+  <input id="apiKey" type="password" placeholder="Enter your FRED API key…" autocomplete="off">
+  <button onclick="fetchAll()">Refresh Data</button>
+  <span class="hint">Key saved in browser · <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" style="color:var(--accent)">Get free key</a></span>
+</div>
+
+<div class="sig" id="signal">
+  <div class="icon">⏳</div>
+  <div><div class="label">Loading…</div><div class="desc">Enter your FRED API key and click Refresh</div></div>
+</div>
+
+<h2>Rate & Inflation Indicators</h2>
+<div class="grid">
+  <div class="card" id="c-dgs10"><div class="card-top"><span class="card-name">10-Yr Nominal Yield</span><span class="badge na" id="b-dgs10">—</span></div><div class="card-val" id="v-dgs10">—</div><div class="card-sub">DGS10 · Daily</div><div class="card-chart"><canvas id="ch-dgs10"></canvas></div><div class="card-thr">🟢 ≤4.50% · 🟡 ≤5.25% · 🔴 &gt;5.25%</div></div>
+  <div class="card" id="c-dfii10"><div class="card-top"><span class="card-name">10-Yr Real Yield (TIPS)</span><span class="badge na" id="b-dfii10">—</span></div><div class="card-val" id="v-dfii10">—</div><div class="card-sub">DFII10 · Daily</div><div class="card-chart"><canvas id="ch-dfii10"></canvas></div><div class="card-thr">🟢 ≤2.00% · 🟡 ≤2.75% · 🔴 &gt;2.75%</div></div>
+  <div class="card" id="c-bei"><div class="card-top"><span class="card-name">Breakeven Inflation (BEI)</span><span class="badge na" id="b-bei">—</span></div><div class="card-val" id="v-bei">—</div><div class="card-sub">DGS10 − DFII10 · Daily</div><div class="card-chart"><canvas id="ch-bei"></canvas></div><div class="card-thr">🟢 1.80–2.70% · 🟡 1.40–1.80 or 2.70–3.10% · 🔴 outside</div></div>
+</div>
+
+<h2>Dollar & Foreign Demand</h2>
+<div class="grid">
+  <div class="card" id="c-dxy"><div class="card-top"><span class="card-name">USD Broad Index (13-wk chg)</span><span class="badge na" id="b-dxy">—</span></div><div class="card-val" id="v-dxy">—</div><div class="card-sub">DTWEXBGS · Weekly</div><div class="card-chart"><canvas id="ch-dxy"></canvas></div><div class="card-thr">🟢 &gt;−3% · 🟡 &gt;−7% · 🔴 ≤−7%</div></div>
+  <div class="card" id="c-tic"><div class="card-top"><span class="card-name">Foreign Custody Holdings (YoY)</span><span class="badge na" id="b-tic">—</span></div><div class="card-val" id="v-tic">—</div><div class="card-sub">WMTSECL1 · Weekly Fed H.4.1</div><div class="card-chart"><canvas id="ch-tic"></canvas></div><div class="card-thr">🟢 &gt;0% · 🟡 &gt;−5% · 🔴 ≤−5%</div></div>
+</div>
+
+<h2>Market Structure</h2>
+<div class="grid">
+  <div class="card" id="c-tp"><div class="card-top"><span class="card-name">Term Premium (ACM)</span><span class="badge na" id="b-tp">—</span></div><div class="card-val" id="v-tp">—</div><div class="card-sub">THREEFYTP10 · Daily</div><div class="card-chart"><canvas id="ch-tp"></canvas></div><div class="card-thr">🟢 &lt;0.75% · 🟡 ≤1.50% · 🔴 &gt;1.50%</div></div>
+  <div class="card" id="c-cbo"><div class="card-top"><span class="card-name">CBO Debt-to-GDP Forecast</span><span class="badge na" id="b-cbo">—</span></div><div class="card-val" id="v-cbo">—</div><div class="card-sub">Manual · CBO Long-Term Outlook</div><div class="card-chart"><canvas id="ch-cbo"></canvas></div><div class="card-thr">🟢 &lt;100% · 🟡 ≤120% · 🔴 &gt;120%</div></div>
+</div>
+
+<h2>Auction Health</h2>
+<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+  <div class="card" id="c-btc"><div class="card-top"><span class="card-name">Bid-to-Cover Ratio</span><span class="badge na" id="b-btc">—</span></div><div class="card-val" id="v-btc">—</div><div class="card-sub">Last 10-yr auction</div><div class="card-thr">🟢 ≥2.5 · 🟡 ≥2.3 · 🔴 &lt;2.3</div></div>
+  <div class="card" id="c-ib"><div class="card-top"><span class="card-name">Indirect Bidder %</span><span class="badge na" id="b-ib">—</span></div><div class="card-val" id="v-ib">—</div><div class="card-sub">Last 10-yr auction (foreign demand proxy)</div><div class="card-thr">🟢 ≥65% · 🟡 ≥55% · 🔴 &lt;55%</div></div>
+  <div class="card" id="c-tail"><div class="card-top"><span class="card-name">Auction Tail (bps)</span><span class="badge na" id="b-tail">—</span></div><div class="card-val" id="v-tail">—</div><div class="card-sub">High yield − WI yield at bid deadline</div><div class="card-thr">🟢 ≤1.5 bps · 🟡 ≤3.0 bps · 🔴 &gt;3.0 bps</div></div>
+</div>
+
+<div style="margin-top:22px">
+  <h2>Recent 10-Year Note Auctions</h2>
+  <div class="card" style="overflow-x:auto">
+    <div id="auction-loading" class="loading">Loading auction data…</div>
+    <table class="atbl" id="auction-table" style="display:none">
+      <thead><tr><th>Date</th><th class="num">High Yield</th><th class="num">Bid/Cover</th><th class="num">Indirect %</th><th class="num">Offered ($B)</th></tr></thead>
+      <tbody id="auction-body"></tbody>
+    </table>
+    <div id="auction-error" class="err" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const FRED = 'https://api.stlouisfed.org/fred/series/observations';
+const TD   = 'https://www.treasurydirect.gov/TA_WS/securities/search';
+
+// ── Scoring ──────────────────────────────────────────────────────────────────
+const S = {
+  dgs10:  v => v==null?null: v<=4.50?'green':v<=5.25?'yellow':'red',
+  dfii10: v => v==null?null: v<=2.00?'green':v<=2.75?'yellow':'red',
+  bei:    v => v==null?null: (v>=1.80&&v<=2.70)?'green':((v>=1.40&&v<1.80)||(v>2.70&&v<=3.10))?'yellow':'red',
+  dxy:    v => v==null?null: v>-3.0?'green':v>-7.0?'yellow':'red',
+  tic:    v => v==null?null: v>0?'green':v>-5?'yellow':'red',
+  tp:     v => v==null?null: v<0.75?'green':v<=1.50?'yellow':'red',
+  btc:    v => v==null?null: v>=2.5?'green':v>=2.3?'yellow':'red',
+  ib:     v => v==null?null: v>=65?'green':v>=55?'yellow':'red',
+  tail:   v => v==null?null: v<=1.5?'green':v<=3.0?'yellow':'red',
+  cbo:    v => v==null?null: v<100?'green':v<=120?'yellow':'red',
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const state = {};
+const charts = {};
+
+// ── FRED fetch ────────────────────────────────────────────────────────────────
+async function ff(id, limit, key, start='2023-01-01') {
+  const url = FRED+'?series_id='+id+'&api_key='+key+'&file_type=json&limit='+limit+'&sort_order=desc&observation_start='+start;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP '+r.status+' for '+id);
+  const j = await r.json();
+  if (j.error_message) throw new Error(j.error_message);
+  return j.observations.filter(o=>o.value!=='.'&&o.value!=='').map(o=>({date:o.date,val:parseFloat(o.value)})).reverse();
+}
+
+// ── Chart helper ──────────────────────────────────────────────────────────────
+function sparkline(id, data, color) {
+  const ctx = document.getElementById('ch-'+id);
+  if (!ctx) return;
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(ctx, {
+    type:'line',
+    data:{labels:data.map(d=>d.date),datasets:[{data:data.map(d=>d.val),borderColor:color,borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:color+'22',tension:.3}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false}},animation:false}
+  });
+}
+
+// ── Update a single card ──────────────────────────────────────────────────────
+function setCard(id, val, fmt, series) {
+  const sc = S[id] ? S[id](val) : null;
+  const color = sc==='green'?'#22c55e':sc==='yellow'?'#f59e0b':sc==='red'?'#ef4444':'#505a70';
+  document.getElementById('v-'+id).textContent = val!=null ? fmt(val) : '—';
+  const b = document.getElementById('b-'+id);
+  b.textContent = sc ? sc.toUpperCase() : 'N/A';
+  b.className = 'badge '+(sc||'na');
+  const c = document.getElementById('c-'+id);
+  c.className = 'card '+(sc||'');
+  state[id] = sc;
+  if (series && series.length > 1) sparkline(id, series, color);
+}
+
+// ── Signal banner ─────────────────────────────────────────────────────────────
+function updateSignal() {
+  const scores = Object.values(state).filter(Boolean);
+  const R = scores.filter(s=>s==='red').length;
+  const Y = scores.filter(s=>s==='yellow').length;
+  const el = document.getElementById('signal');
+  if (R>=2) {
+    el.className='sig alert';
+    el.innerHTML='<div class="icon">🚨</div><div><div class="label">ALERT — Defensive Positioning Triggered</div><div class="desc">≥2 red signals: consider gold, shorter duration, international diversification</div></div><div class="counts">🔴 '+R+' red &nbsp; 🟡 '+Y+' yellow</div>';
+  } else if (Y>=4) {
+    el.className='sig caution';
+    el.innerHTML='<div class="icon">⚠️</div><div><div class="label">CAUTION — Watch Closely</div><div class="desc">≥4 yellow signals: monitor for deterioration</div></div><div class="counts">🔴 '+R+' red &nbsp; 🟡 '+Y+' yellow</div>';
+  } else {
+    el.className='sig clear';
+    el.innerHTML='<div class="icon">✅</div><div><div class="label">CLEAR — No Signal</div><div class="desc">Conditions within normal ranges</div></div><div class="counts">🔴 '+R+' red &nbsp; 🟡 '+Y+' yellow</div>';
+  }
+}
+
+// ── Pct change helper ──────────────────────────────────────────────────────────
+function pctChg(series, periods) {
+  if (series.length < periods+1) return null;
+  const now = series[series.length-1].val;
+  const then = series[series.length-1-periods].val;
+  return (now-then)/Math.abs(then)*100;
+}
+
+// ── Auctions ──────────────────────────────────────────────────────────────────
+async function fetchAuctions() {
+  const since = new Date(); since.setFullYear(since.getFullYear()-1);
+  const ds = since.toISOString().slice(0,10);
+  try {
+    const url = TD+'?type=Note&term=10-Year&dateFieldName=issueDate&startDate='+ds+'&format=json&pagesize=6';
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    const auctions = data.filter(a=>a.bidToCoverRatio&&a.bidToCoverRatio!=='').sort((a,b)=>b.auctionDate.localeCompare(a.auctionDate)).slice(0,3);
+    document.getElementById('auction-loading').style.display='none';
+    if (auctions.length===0) { document.getElementById('auction-error').textContent='No recent auction data found.'; document.getElementById('auction-error').style.display=''; return; }
+    const tbody = document.getElementById('auction-body');
+    tbody.innerHTML='';
+    auctions.forEach((a,i)=>{
+      const btc=parseFloat(a.bidToCoverRatio);
+      const ib=a.totalAccepted?parseFloat(a.indirectBidderAccepted)/parseFloat(a.totalAccepted)*100:null;
+      const offered=a.offeringAmount?parseFloat(a.offeringAmount)/1e9:null;
+      const d=a.auctionDate.slice(0,10);
+      const tail=a.priceTail!=null?(parseFloat(a.priceTail)*100).toFixed(1):null;
+      const tr=document.createElement('tr');
+      tr.innerHTML='<td>'+d+'</td><td class="num">'+a.highYield+'%</td><td class="num">'+btc.toFixed(3)+'</td><td class="num">'+(ib!=null?ib.toFixed(1)+'%':'—')+'</td><td class="num">'+(offered!=null?'$'+offered.toFixed(1)+'B':'—')+'</td>';
+      tbody.appendChild(tr);
+      if (i===0) {
+        setCard('btc', btc, v=>v.toFixed(3), null);
+        setCard('ib', ib, v=>v.toFixed(1)+'%', null);
+        const tailVal=tail!=null?parseFloat(tail):null;
+        setCard('tail', tailVal, v=>v.toFixed(1)+' bps', null);
+      }
+    });
+    document.getElementById('auction-table').style.display='';
+    updateSignal();
+  } catch(e) {
+    document.getElementById('auction-loading').style.display='none';
+    document.getElementById('auction-error').textContent='Auction data unavailable: '+e.message+' (TreasuryDirect may not support CORS from this origin)';
+    document.getElementById('auction-error').style.display='';
+  }
+}
+
+// ── Main fetch ────────────────────────────────────────────────────────────────
+async function fetchAll() {
+  const key = document.getElementById('apiKey').value.trim();
+  if (!key) { alert('Please enter your FRED API key.'); return; }
+  localStorage.setItem('fred_key', key);
+
+  document.getElementById('ts').textContent = 'Refreshing…';
+
+  try {
+    // 10-yr nominal yield
+    const dgs10 = await ff('DGS10', 500, key);
+    setCard('dgs10', dgs10.at(-1).val, v=>v.toFixed(2)+'%', dgs10);
+
+    // 10-yr real yield
+    const dfii10 = await ff('DFII10', 500, key);
+    setCard('dfii10', dfii10.at(-1).val, v=>v.toFixed(2)+'%', dfii10);
+
+    // BEI (computed)
+    const minLen = Math.min(dgs10.length, dfii10.length);
+    const bei = dgs10.slice(-minLen).map((d,i)=>({date:d.date, val:d.val-dfii10[dfii10.length-minLen+i].val}));
+    setCard('bei', bei.at(-1).val, v=>v.toFixed(2)+'%', bei);
+
+    // Broad dollar index — 13-week pct change
+    const dxy = await ff('DTWEXBGS', 200, key);
+    const dxyChg = pctChg(dxy, 13);
+    const dxyChgSeries = dxy.slice(13).map((d,i)=>({date:d.date,val:(d.val-dxy[i].val)/Math.abs(dxy[i].val)*100}));
+    setCard('dxy', dxyChg, v=>(v>=0?'+':'')+v.toFixed(2)+'%', dxyChgSeries);
+
+    // Foreign custody holdings — 52-week pct change
+    const tic = await ff('WMTSECL1', 150, key, '2022-01-01');
+    const ticChg = pctChg(tic, Math.min(52, tic.length-1));
+    const ticChgSeries = tic.slice(52).map((d,i)=>({date:d.date,val:(d.val-tic[i].val)/Math.abs(tic[i].val)*100}));
+    setCard('tic', ticChg, v=>(v>=0?'+':'')+v.toFixed(2)+'%', ticChgSeries);
+
+    // ACM term premium
+    const tp = await ff('THREEFYTP10', 500, key);
+    setCard('tp', tp.at(-1).val, v=>v.toFixed(3)+'%', tp);
+
+    // CBO — static (update manually each Jan)
+    setCard('cbo', 106, v=>v.toFixed(0)+'% GDP', [{date:'2024',val:99},{date:'2025',val:103},{date:'2026',val:106}]);
+
+    updateSignal();
+    document.getElementById('ts').textContent = 'Updated ' + new Date().toLocaleString();
+
+  } catch(e) {
+    document.getElementById('ts').textContent = 'Error: ' + e.message;
+    console.error(e);
+  }
+
+  // Auctions (separate — may fail due to CORS on some origins)
+  fetchAuctions();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('fred_key');
+  if (saved) {
+    document.getElementById('apiKey').value = saved;
+    fetchAll();
+  }
+  document.getElementById('apiKey').addEventListener('keydown', e => { if(e.key==='Enter') fetchAll(); });
+  document.getElementById('apiKey').addEventListener('input', e => { if(e.target.value) localStorage.setItem('fred_key', e.target.value); });
+  updateSignal();
+});
+</script>
+</body>
+</html>
