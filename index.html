@@ -57,8 +57,7 @@ h2{font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;
 .atbl td{padding:8px 10px;border-bottom:1px solid rgba(42,46,66,.5)}
 .atbl tr:last-child td{border-bottom:none}
 .atbl .num{text-align:right;font-variant-numeric:tabular-nums}
-.loading{color:var(--muted);font-size:.88rem;padding:8px 0}
-.err{color:var(--red);font-size:.82rem;margin-top:6px}
+.note{font-size:.75rem;color:var(--dim);margin-top:10px}
 @media(max-width:600px){body{padding:16px 12px}.grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -102,12 +101,11 @@ h2{font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;
 <div style="margin-top:22px">
   <h2>Recent 10-Year Note Auctions</h2>
   <div class="card" style="overflow-x:auto">
-    <div id="auction-loading" class="loading">Loading auction data…</div>
-    <table class="atbl" id="auction-table" style="display:none">
+    <table class="atbl" id="auction-table">
       <thead><tr><th>Date</th><th class="num">High Yield</th><th class="num">Bid/Cover</th><th class="num">Indirect %</th><th class="num">Offered ($B)</th></tr></thead>
       <tbody id="auction-body"></tbody>
     </table>
-    <div id="auction-error" class="err" style="display:none"></div>
+    <div class="note" id="auction-note"></div>
   </div>
 </div>
 <script>
@@ -115,6 +113,13 @@ h2{font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;
 const FRED  = 'https://api.stlouisfed.org/fred/series/observations';
 const TD    = 'https://www.treasurydirect.gov/TA_WS/securities/search';
 const PROXY = 'https://corsproxy.io/?';
+
+// Fallback auction data (updated 2026-03-28, source: TreasuryDirect)
+const AUCTION_FALLBACK = [
+  {date:'2026-03-11',highYield:'4.2170',btc:2.450,ib:74.3,offered:39.0},
+  {date:'2026-02-11',highYield:'4.1770',btc:2.390,ib:50.1,offered:42.0},
+  {date:'2026-01-12',highYield:'4.1730',btc:2.550,ib:53.8,offered:39.0},
+];
 
 const S = {
   dgs10:  v => v==null?null: v<=4.50?'green':v<=5.25?'yellow':'red',
@@ -193,38 +198,46 @@ function pctChg(series, periods) {
   return (now-then)/Math.abs(then)*100;
 }
 
+function renderAuctions(auctions, isLive) {
+  const tbody = document.getElementById('auction-body');
+  tbody.innerHTML = '';
+  auctions.forEach((a, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>'+a.date+'</td><td class="num">'+a.highYield+'%</td><td class="num">'+a.btc.toFixed(3)+'</td><td class="num">'+a.ib.toFixed(1)+'%</td><td class="num">$'+a.offered.toFixed(1)+'B</td>';
+    tbody.appendChild(tr);
+    if (i === 0) {
+      setCard('btc', a.btc, v=>v.toFixed(3), null);
+      setCard('ib', a.ib, v=>v.toFixed(1)+'%', null);
+      setCard('tail', null, v=>v+' bps', null);
+    }
+  });
+  const note = document.getElementById('auction-note');
+  if (!isLive) {
+    note.innerHTML = 'ℹ️ Showing last known data (2026-03-11) · <a href="https://www.treasurydirect.gov/TA_WS/securities/search?type=Note&term=10-Year&dateFieldName=issueDate&startDate=2025-01-01&format=json&pagesize=6" target="_blank" style="color:var(--accent)">View live on TreasuryDirect ↗</a>';
+  } else {
+    note.textContent = '';
+  }
+  updateSignal();
+}
+
 async function fetchAuctions() {
   const since = new Date(); since.setFullYear(since.getFullYear()-1);
   const ds = since.toISOString().slice(0,10);
   try {
     const url = TD+'?type=Note&term=10-Year&dateFieldName=issueDate&startDate='+ds+'&format=json&pagesize=6';
     const data = await pget(url);
-    const auctions = data.filter(a=>a.bidToCoverRatio&&a.bidToCoverRatio!=='').sort((a,b)=>b.auctionDate.localeCompare(a.auctionDate)).slice(0,3);
-    document.getElementById('auction-loading').style.display='none';
-    if (!auctions.length) { document.getElementById('auction-error').textContent='No recent auction data found.'; document.getElementById('auction-error').style.display=''; return; }
-    const tbody = document.getElementById('auction-body');
-    tbody.innerHTML='';
-    auctions.forEach((a,i)=>{
-      const btc=parseFloat(a.bidToCoverRatio);
-      const ib=a.totalAccepted?parseFloat(a.indirectBidderAccepted)/parseFloat(a.totalAccepted)*100:null;
-      const offered=a.offeringAmount?parseFloat(a.offeringAmount)/1e9:null;
-      const d=a.auctionDate.slice(0,10);
-      const tr=document.createElement('tr');
-      tr.innerHTML='<td>'+d+'</td><td class="num">'+a.highYield+'%</td><td class="num">'+btc.toFixed(3)+'</td><td class="num">'+(ib!=null?ib.toFixed(1)+'%':'—')+'</td><td class="num">'+(offered!=null?'$'+offered.toFixed(1)+'B':'—')+'</td>';
-      tbody.appendChild(tr);
-      if (i===0) {
-        setCard('btc', btc, v=>v.toFixed(3), null);
-        setCard('ib', ib, v=>v.toFixed(1)+'%', null);
-        setCard('tail', null, v=>v.toFixed(1)+' bps', null);
-      }
-    });
-    document.getElementById('auction-table').style.display='';
-    updateSignal();
-  } catch(e) {
-    document.getElementById('auction-loading').style.display='none';
-    document.getElementById('auction-error').textContent='Auction data unavailable: '+e.message;
-    document.getElementById('auction-error').style.display='';
-  }
+    const raw = data.filter(a=>a.bidToCoverRatio&&a.bidToCoverRatio!=='')
+      .sort((a,b)=>b.auctionDate.localeCompare(a.auctionDate)).slice(0,3)
+      .map(a=>({
+        date: a.auctionDate.slice(0,10),
+        highYield: a.highYield,
+        btc: parseFloat(a.bidToCoverRatio),
+        ib: a.totalAccepted ? parseFloat(a.indirectBidderAccepted)/parseFloat(a.totalAccepted)*100 : 0,
+        offered: a.offeringAmount ? parseFloat(a.offeringAmount)/1e9 : 0
+      }));
+    if (raw.length) { renderAuctions(raw, true); return; }
+  } catch(e) { /* fall through to static */ }
+  renderAuctions(AUCTION_FALLBACK, false);
 }
 
 async function fetchAll() {
@@ -238,7 +251,7 @@ async function fetchAll() {
     const dfii10 = await ff('DFII10', 500, key);
     setCard('dfii10', dfii10.at(-1).val, v=>v.toFixed(2)+'%', dfii10);
     const minLen = Math.min(dgs10.length, dfii10.length);
-    const bei = dgs10.slice(-minLen).map((d,i)=>({date:d.date, val:d.val-dfii10[dfii10.length-minLen+i].val}));
+    const bei = dgs10.slice(-minLen).map((d,i)=>({date:d.date,val:d.val-dfii10[dfii10.length-minLen+i].val}));
     setCard('bei', bei.at(-1).val, v=>v.toFixed(2)+'%', bei);
     const dxy = await ff('DTWEXBGS', 200, key);
     const dxyChg = pctChg(dxy, 13);
@@ -261,6 +274,7 @@ async function fetchAll() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  renderAuctions(AUCTION_FALLBACK, false);
   const saved = localStorage.getItem('fred_key');
   if (saved) { document.getElementById('apiKey').value = saved; fetchAll(); }
   document.getElementById('apiKey').addEventListener('keydown', e => { if(e.key==='Enter') fetchAll(); });
