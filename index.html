@@ -113,8 +113,8 @@ h2{font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;
 <script>
 'use strict';
 const FRED  = 'https://api.stlouisfed.org/fred/series/observations';
-const PROXY = 'https://corsproxy.io/?';
 const TD    = 'https://www.treasurydirect.gov/TA_WS/securities/search';
+const PROXY = 'https://corsproxy.io/?';
 
 const S = {
   dgs10:  v => v==null?null: v<=4.50?'green':v<=5.25?'yellow':'red',
@@ -132,11 +132,15 @@ const S = {
 const state = {};
 const charts = {};
 
+async function pget(url) {
+  const r = await fetch(PROXY + encodeURIComponent(url));
+  if (!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
 async function ff(id, limit, key, start='2023-01-01') {
-  const fredUrl = FRED+'?series_id='+id+'&api_key='+key+'&file_type=json&limit='+limit+'&sort_order=desc&observation_start='+start;
-  const r = await fetch(PROXY + encodeURIComponent(fredUrl));
-  if (!r.ok) throw new Error('HTTP '+r.status+' for '+id);
-  const j = await r.json();
+  const url = FRED+'?series_id='+id+'&api_key='+key+'&file_type=json&limit='+limit+'&sort_order=desc&observation_start='+start;
+  const j = await pget(url);
   if (j.error_message) throw new Error(j.error_message);
   return j.observations.filter(o=>o.value!=='.'&&o.value!=='').map(o=>({date:o.date,val:parseFloat(o.value)})).reverse();
 }
@@ -194,9 +198,7 @@ async function fetchAuctions() {
   const ds = since.toISOString().slice(0,10);
   try {
     const url = TD+'?type=Note&term=10-Year&dateFieldName=issueDate&startDate='+ds+'&format=json&pagesize=6';
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('HTTP '+r.status);
-    const data = await r.json();
+    const data = await pget(url);
     const auctions = data.filter(a=>a.bidToCoverRatio&&a.bidToCoverRatio!=='').sort((a,b)=>b.auctionDate.localeCompare(a.auctionDate)).slice(0,3);
     document.getElementById('auction-loading').style.display='none';
     if (!auctions.length) { document.getElementById('auction-error').textContent='No recent auction data found.'; document.getElementById('auction-error').style.display=''; return; }
@@ -220,7 +222,7 @@ async function fetchAuctions() {
     updateSignal();
   } catch(e) {
     document.getElementById('auction-loading').style.display='none';
-    document.getElementById('auction-error').textContent='Auction data: '+e.message;
+    document.getElementById('auction-error').textContent='Auction data unavailable: '+e.message;
     document.getElementById('auction-error').style.display='';
   }
 }
@@ -233,29 +235,22 @@ async function fetchAll() {
   try {
     const dgs10 = await ff('DGS10', 500, key);
     setCard('dgs10', dgs10.at(-1).val, v=>v.toFixed(2)+'%', dgs10);
-
     const dfii10 = await ff('DFII10', 500, key);
     setCard('dfii10', dfii10.at(-1).val, v=>v.toFixed(2)+'%', dfii10);
-
     const minLen = Math.min(dgs10.length, dfii10.length);
     const bei = dgs10.slice(-minLen).map((d,i)=>({date:d.date, val:d.val-dfii10[dfii10.length-minLen+i].val}));
     setCard('bei', bei.at(-1).val, v=>v.toFixed(2)+'%', bei);
-
     const dxy = await ff('DTWEXBGS', 200, key);
     const dxyChg = pctChg(dxy, 13);
     const dxyChgSeries = dxy.slice(13).map((d,i)=>({date:d.date,val:(d.val-dxy[i].val)/Math.abs(dxy[i].val)*100}));
     setCard('dxy', dxyChg, v=>(v>=0?'+':'')+v.toFixed(2)+'%', dxyChgSeries);
-
     const tic = await ff('WMTSECL1', 150, key, '2022-01-01');
     const ticChg = pctChg(tic, Math.min(52, tic.length-1));
     const ticChgSeries = tic.slice(52).map((d,i)=>({date:d.date,val:(d.val-tic[i].val)/Math.abs(tic[i].val)*100}));
     setCard('tic', ticChg, v=>(v>=0?'+':'')+v.toFixed(2)+'%', ticChgSeries);
-
     const tp = await ff('THREEFYTP10', 500, key);
     setCard('tp', tp.at(-1).val, v=>v.toFixed(3)+'%', tp);
-
     setCard('cbo', 106, v=>v.toFixed(0)+'% GDP', [{date:'2024',val:99},{date:'2025',val:103},{date:'2026',val:106}]);
-
     updateSignal();
     document.getElementById('ts').textContent = 'Updated ' + new Date().toLocaleString();
   } catch(e) {
